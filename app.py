@@ -8,7 +8,39 @@ from urllib3.util.retry import Retry
 from dotenv import load_dotenv
 import gdown
 
+# -------------------------
+# CONFIG: Google Drive file
+# -------------------------
+# FILE ID extracted from your Drive link:
+# https://drive.google.com/file/d/1TaJ5E3y7I96dUURtkUEf4TTHoPOPSQ0Z/view?usp=sharing
+GDRIVE_FILE_ID = "1TaJ5E3y7I96dUURtkUEf4TTHoPOPSQ0Z"
+GDRIVE_URL = f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}"
+LOCAL_SIM_PATH = "similarity.pkl"
 
+# -------------------------
+# helper: download similarity
+# -------------------------
+def ensure_similarity():
+    """
+    Download similarity.pkl from Google Drive if not present locally.
+    Shows a Streamlit spinner during download and stops app on failure.
+    """
+    if os.path.exists(LOCAL_SIM_PATH):
+        return True
+
+    try:
+        with st.spinner("Downloading model file (similarity.pkl)..."):
+            # gdown will raise if it cannot access the file or permission is insufficient
+            gdown.download(GDRIVE_URL, LOCAL_SIM_PATH, quiet=False)
+    except Exception as e:
+        st.error(f"Model download failed: {e}")
+        return False
+
+    return os.path.exists(LOCAL_SIM_PATH)
+
+# --------------------------------
+# Load local environment variables
+# --------------------------------
 load_dotenv()
 
 TMDB_API_KEY = None
@@ -18,7 +50,12 @@ except Exception:
     TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
 if not TMDB_API_KEY:
-    st.error("TMDB_API_KEY not found. Add it to .env or to Streamlit Secrets and restart.")
+    st.error("TMDB_API_KEY not found. Add it to Streamlit Secrets or to your local .env and restart.")
+    st.stop()
+
+# Ensure similarity.pkl is present (download if needed)
+if not ensure_similarity():
+    st.error("Could not obtain similarity.pkl. Check Google Drive permissions or file ID.")
     st.stop()
 
 TMDB_BASE = "https://api.themoviedb.org/3"
@@ -53,19 +90,22 @@ def fetch_movie_details(movie_id):
         print(f"[fetch_movie_details] movie_id={movie_id} failed: {e}")
         return PLACEHOLDER_IMAGE, "", ""
 
-expected_files = {"movies_dict.pkl", "similarity.pkl"}
-missing = [f for f in expected_files if not os.path.exists(f)]
-if missing:
-    st.error(f"Missing file(s): {', '.join(missing)}. Place them in project root.")
+
+# Check that movies_dict.pkl exists (this should be in your repo)
+if not os.path.exists("movies_dict.pkl"):
+    st.error("Missing file: movies_dict.pkl. Place it in project root.")
     st.stop()
 
+# Load small files from repo
 with open("movies_dict.pkl", "rb") as f:
     movies_dict = pickle.load(f)
 movies = pd.DataFrame(movies_dict)
 
-with open("similarity.pkl", "rb") as f:
+# Load similarity (downloaded above)
+with open(LOCAL_SIM_PATH, "rb") as f:
     similarity = pickle.load(f)
 
+# --- UI ---
 st.set_page_config(page_title="Movie Recommender", layout="wide")
 st.markdown(
     """
@@ -82,6 +122,7 @@ st.title("🎬 Movie Recommendation System")
 st.caption("Select a movie and get 5 recommendations with posters and summaries.")
 
 selected_movie_name = st.selectbox("Select movie to recommend", movies["title"].values)
+
 
 def recommend(movie, k=5):
     matched = movies[movies["title"] == movie]
@@ -113,7 +154,6 @@ if st.button("Recommend"):
         cols = st.columns(len(names))
         for i, col in enumerate(cols):
             with col:
-
                 st.markdown(
                     f"<div class='movie-title'>{names[i]}</div><div class='release'>{dates[i]}</div>",
                     unsafe_allow_html=True,
@@ -128,10 +168,9 @@ if st.button("Recommend"):
                 st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
 with st.expander("About This App"):
-    st.write("""
+    st.write(
+        """
     This movie recommendation system was designed and developed by **Varsh Vishwakarma**.
     Powered by TMDB API & Machine Learning similarity models.
-    """)
-
-st.markdown("---")
-st.caption("Tip: to keep secrets safe, add TMDB_API_KEY to Streamlit Secrets or your local .env (do not commit it).")
+    """
+    )
