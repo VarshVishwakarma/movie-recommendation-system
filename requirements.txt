@@ -47,3 +47,6 @@ requests
 python-dotenv
 urllib3
 gdown
+numpy
+pandas
+scikit-learn
